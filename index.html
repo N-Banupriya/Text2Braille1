@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="BrailleBridge — convert text into uncontracted (Grade 1) English Braille with live dot-cell previews, speech, and saved history." />
+<title>BrailleBridge · Text to Braille</title>
+
+<!-- Atkinson Hyperlegible was designed by the Braille Institute for low-vision readers — a meaningful body font here. Fraunces is the display serif. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,900&display=swap" rel="stylesheet" />
+
+<style>
+/* ============================================================
+   BrailleBridge — Text to Braille
+   Single-file build: structure (HTML) + styles (CSS) + logic (JS)
+   ============================================================ */
+
+/* ---------- 1. Design tokens / theming ---------- */
+:root{
+  --bg:#f4ece0;
+  --surface:#fbf6ee;
+  --surface-2:#f0e6d7;
+  --ink:#2b2420;
+  --muted:#6f6258;
+  --accent:#b5451f;       /* terracotta */
+  --accent-ink:#fff;
+  --accent-2:#1f6f5c;     /* deep teal  */
+  --line:rgba(43,36,32,.14);
+  --ok:#2f7d4f;
+  --warn:#b5451f;
+  --dot-on:var(--ink);
+  --dot-off:rgba(43,36,32,.16);
+  --shadow:0 18px 40px -22px rgba(43,36,32,.55);
+  --radius:18px;
+  --maxw:1180px;
+}
+[data-theme="dark"]{
+  --bg:#18130f;
+  --surface:#221b16;
+  --surface-2:#2b231c;
+  --ink:#f3e9dc;
+  --muted:#b3a596;
+  --accent:#e07a4d;
+  --accent-ink:#1a120c;
+  --accent-2:#62c2a8;
+  --line:rgba(243,233,220,.14);
+  --ok:#7ed59b;
+  --warn:#e07a4d;
+  --dot-off:rgba(243,233,220,.16);
+  --shadow:0 18px 44px -22px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;
+  font-family:"Atkinson Hyperlegible",system-ui,sans-serif;
+  color:var(--ink);
+  background:var(--bg);
+  line-height:1.5;
+  /* Tactile background: faint braille-dot grid + warm wash */
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--line) 1.4px, transparent 1.6px),
+    radial-gradient(140% 120% at 100% -10%, color-mix(in srgb,var(--accent) 14%, transparent), transparent 60%);
+  background-size:26px 26px, 100% 100%;
+  transition:background-color .35s ease,color .35s ease;
+}
+
+/* ---------- 2. Accessibility helpers ---------- */
+.skip{position:absolute;left:-9999px;top:0;background:var(--accent);color:var(--accent-ink);
+  padding:.7rem 1.1rem;border-radius:0 0 10px 0;z-index:200;font-weight:700;}
+.skip:focus{left:0;}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+:focus-visible{outline:3px solid var(--accent-2);outline-offset:2px;border-radius:6px;}
+
+/* ---------- 3. Layout ---------- */
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 clamp(1rem,4vw,2.5rem);}
+
+header.site{
+  position:sticky;top:0;z-index:50;
+  backdrop-filter:saturate(1.2) blur(10px);
+  background:color-mix(in srgb,var(--bg) 82%, transparent);
+  border-bottom:1px solid var(--line);
+}
+.bar{display:flex;align-items:center;gap:1rem;padding:.85rem 0;}
+.brand{display:flex;align-items:center;gap:.7rem;font-family:"Fraunces",serif;font-weight:900;
+  font-size:1.4rem;letter-spacing:-.01em;color:var(--ink);text-decoration:none;}
+.logo{width:34px;height:46px;flex:0 0 auto;}
+.logo .d{fill:var(--accent);}
+.logo .e{fill:var(--dot-off);}
+.brand small{display:block;font-family:"Atkinson Hyperlegible",sans-serif;font-weight:400;
+  font-size:.7rem;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);}
+.bar .spacer{flex:1;}
+.theme-btn{display:inline-flex;align-items:center;gap:.5rem;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);border-radius:999px;padding:.5rem .9rem;
+  font-weight:700;cursor:pointer;font-family:inherit;font-size:.85rem;transition:transform .15s ease;}
+.theme-btn:hover{transform:translateY(-1px);}
+
+/* ---------- 4. Hero ---------- */
+.hero{padding:clamp(2.2rem,6vw,4rem) 0 1.2rem;}
+.hero h1{font-family:"Fraunces",serif;font-weight:900;line-height:1.02;letter-spacing:-.02em;
+  font-size:clamp(2.4rem,7vw,4.4rem);margin:.2rem 0 .6rem;}
+.hero h1 .ink{color:var(--accent);}
+.hero p{max-width:48ch;color:var(--muted);font-size:clamp(1rem,2.4vw,1.2rem);margin:0;}
+
+/* ---------- 5. Grid of cards ---------- */
+.grid{display:grid;grid-template-columns:1.4fr .9fr;gap:1.4rem;padding:1.4rem 0 3.5rem;align-items:start;}
+@media (max-width:920px){.grid{grid-template-columns:1fr;}}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:clamp(1.1rem,3vw,1.7rem);}
+.card h2{font-family:"Fraunces",serif;font-weight:600;font-size:1.25rem;margin:0 0 .2rem;}
+.card .hint{color:var(--muted);font-size:.85rem;margin:0 0 1rem;}
+
+/* ---------- 6. Form ---------- */
+label.lbl{display:block;font-weight:700;margin-bottom:.4rem;font-size:.95rem;}
+textarea{width:100%;min-height:140px;resize:vertical;border-radius:12px;border:1.5px solid var(--line);
+  background:var(--surface-2);color:var(--ink);padding:.9rem 1rem;font-family:inherit;font-size:1.05rem;
+  transition:border-color .2s ease;}
+textarea:focus{border-color:var(--accent);outline:none;}
+textarea.invalid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--surface-2));}
+
+.meta-row{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-top:.5rem;flex-wrap:wrap;}
+.counter{font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums;}
+.counter.warn{color:var(--warn);font-weight:700;}
+.msg{font-size:.85rem;font-weight:700;min-height:1.2em;}
+.msg.error{color:var(--warn);}
+.msg.ok{color:var(--ok);}
+
+/* ---------- 7. Buttons ---------- */
+.btns{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1rem;}
+.btn{display:inline-flex;align-items:center;gap:.5rem;border:none;cursor:pointer;font-family:inherit;
+  font-weight:700;font-size:.95rem;padding:.7rem 1.1rem;border-radius:11px;transition:transform .14s ease,filter .14s ease;}
+.btn:hover{transform:translateY(-2px);}
+.btn:active{transform:translateY(0);}
+.btn[disabled]{opacity:.45;cursor:not-allowed;transform:none;}
+.btn.primary{background:var(--accent);color:var(--accent-ink);}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line);}
+.btn.solid2{background:var(--accent-2);color:#fff;}
+
+/* ---------- 8. Options ---------- */
+.options{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin-top:1.1rem;
+  padding-top:1.1rem;border-top:1px dashed var(--line);}
+.toggle{display:flex;align-items:center;gap:.6rem;cursor:pointer;font-size:.9rem;user-select:none;}
+.toggle input{position:absolute;opacity:0;width:0;height:0;}
+.switch{width:42px;height:24px;border-radius:999px;background:var(--dot-off);position:relative;
+  flex:0 0 auto;transition:background .2s ease;}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;
+  background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s ease;}
+.toggle input:checked + .switch{background:var(--accent);}
+.toggle input:checked + .switch::after{transform:translateX(18px);}
+.toggle input:focus-visible + .switch{outline:3px solid var(--accent-2);outline-offset:2px;}
+.slider-row{grid-column:1/-1;display:flex;align-items:center;gap:.8rem;font-size:.9rem;}
+.slider-row input[type=range]{flex:1;accent-color:var(--accent);}
+
+/* ---------- 9. Output ---------- */
+.output-box{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;
+  padding:1rem;min-height:64px;font-size:clamp(1.6rem,5vw,2.2rem);line-height:1.7;
+  word-break:break-word;letter-spacing:.06em;}
+.output-box:empty::before{content:"Your Braille appears here…";color:var(--muted);font-size:1rem;letter-spacing:0;}
+
+/* Visual dot-cell rendering */
+.cells{display:flex;flex-wrap:wrap;gap:10px;margin-top:1rem;}
+.cell{--s:14px;display:grid;grid-template-columns:repeat(2,var(--s));grid-auto-rows:var(--s);gap:4px;
+  padding:8px;border-radius:10px;background:var(--surface);border:1px solid var(--line);}
+.cell.space{align-items:center;justify-content:center;color:var(--muted);font-size:.7rem;letter-spacing:.1em;
+  grid-template-columns:auto;}
+.dot{width:var(--s);height:var(--s);border-radius:50%;}
+.dot.on{background:var(--dot-on);box-shadow:inset 0 -2px 3px rgba(0,0,0,.35);}
+.dot.off{background:var(--dot-off);}
+
+/* ---------- 10. Reference (alphabet) ---------- */
+.ref-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:.5rem;margin-top:.4rem;}
+.ref-key{display:flex;flex-direction:column;align-items:center;gap:.2rem;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:10px;padding:.5rem .2rem;cursor:pointer;font-family:inherit;
+  color:var(--ink);transition:transform .12s ease,border-color .12s ease;}
+.ref-key:hover{transform:translateY(-2px);border-color:var(--accent);}
+.ref-key .braille{font-size:1.5rem;line-height:1;}
+.ref-key .latin{font-size:.8rem;color:var(--muted);font-weight:700;}
+details.ref{margin-top:1.3rem;}
+details.ref summary{cursor:pointer;font-weight:700;font-family:"Fraunces",serif;font-size:1.05rem;}
+
+/* ---------- 11. History ---------- */
+.hist-head{display:flex;justify-content:space-between;align-items:center;gap:1rem;}
+.hist-list{list-style:none;margin:.8rem 0 0;padding:0;display:flex;flex-direction:column;gap:.6rem;
+  max-height:430px;overflow:auto;}
+.hist-item{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:.7rem .8rem;}
+.hist-item .src{font-weight:700;word-break:break-word;}
+.hist-item .br{font-size:1.2rem;color:var(--muted);word-break:break-word;}
+.hist-item .row{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-top:.4rem;}
+.hist-item time{font-size:.72rem;color:var(--muted);}
+.mini{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:8px;
+  padding:.3rem .55rem;font-size:.78rem;font-weight:700;cursor:pointer;font-family:inherit;}
+.mini:hover{border-color:var(--accent);}
+.mini.danger:hover{border-color:var(--warn);color:var(--warn);}
+.empty{color:var(--muted);font-size:.9rem;padding:1rem 0;text-align:center;}
+
+/* ---------- 12. Toast + footer ---------- */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(120%);
+  background:var(--ink);color:var(--bg);padding:.7rem 1.2rem;border-radius:999px;font-weight:700;
+  box-shadow:var(--shadow);z-index:120;transition:transform .35s cubic-bezier(.2,.9,.3,1.2);}
+.toast.show{transform:translateX(-50%) translateY(0);}
+footer.site{border-top:1px solid var(--line);padding:1.6rem 0 2.5rem;color:var(--muted);font-size:.85rem;}
+footer.site b{color:var(--ink);}
+</style>
+</head>
+<body>
+<a class="skip" href="#input">Skip to converter</a>
+
+<!-- ===================== HEADER ===================== -->
+<header class="site">
+  <div class="wrap bar">
+    <a class="brand" href="#top">
+      <svg class="logo" viewBox="0 0 34 46" aria-hidden="true">
+        <circle class="d" cx="9"  cy="9"  r="6"/><circle class="e" cx="25" cy="9"  r="6"/>
+        <circle class="e" cx="9"  cy="23" r="6"/><circle class="d" cx="25" cy="23" r="6"/>
+        <circle class="d" cx="9"  cy="37" r="6"/><circle class="e" cx="25" cy="37" r="6"/>
+      </svg>
+      <span>BrailleBridge<small>Text → Braille</small></span>
+    </a>
+    <span class="spacer"></span>
+    <button class="theme-btn" id="themeBtn" aria-pressed="false" title="Toggle light / dark">
+      <span id="themeIcon">🌙</span><span id="themeText">Dark</span>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <!-- ===================== HERO ===================== -->
+  <section class="wrap hero">
+    <h1>Feel the <span class="ink">words.</span></h1>
+    <p>Type anything and watch it become uncontracted (Grade&nbsp;1) English Braille — with live tactile dot cells, speech read-back, and a history that stays on your device.</p>
+  </section>
+
+  <!-- ===================== MAIN GRID ===================== -->
+  <div class="wrap grid">
+
+    <!-- LEFT: Converter -->
+    <section class="card" aria-labelledby="convTitle">
+      <h2 id="convTitle">Converter</h2>
+      <p class="hint">Letters, numbers, and common punctuation are supported.</p>
+
+      <label class="lbl" for="input">Your text</label>
+      <textarea id="input" maxlength="5000" placeholder="e.g. Hello World 2026!"
+        aria-describedby="counter msg"></textarea>
+
+      <div class="meta-row">
+        <span class="counter" id="counter">0 / 5000</span>
+        <span class="msg" id="msg" role="alert" aria-live="assertive"></span>
+      </div>
+
+      <div class="btns">
+        <button class="btn primary" id="convertBtn">⠿ Convert</button>
+        <button class="btn solid2" id="speakBtn">🔊 Read aloud</button>
+        <button class="btn ghost" id="saveBtn">★ Save</button>
+        <button class="btn ghost" id="clearBtn">Clear</button>
+      </div>
+
+      <!-- Options -->
+      <div class="options" role="group" aria-label="Conversion options">
+        <label class="toggle"><input type="checkbox" id="optAuto" checked><span class="switch"></span>Auto-convert</label>
+        <label class="toggle"><input type="checkbox" id="optCells" checked><span class="switch"></span>Show dot cells</label>
+        <label class="toggle"><input type="checkbox" id="optNums"><span class="switch"></span>Show dot numbers</label>
+        <label class="toggle"><input type="checkbox" id="optCaps" checked><span class="switch"></span>Capital signs</label>
+        <div class="slider-row">
+          <label for="optSize">Cell size</label>
+          <input type="range" id="optSize" min="9" max="22" value="14">
+          <span id="sizeVal" style="min-width:3ch;text-align:right">14</span>
+        </div>
+      </div>
+
+      <!-- Output -->
+      <h2 style="margin-top:1.4rem">Braille output</h2>
+      <div class="output-box" id="output" aria-live="polite" aria-label="Braille result"></div>
+      <p class="hint" id="dotNums" style="margin-top:.6rem;font-size:.8rem"></p>
+      <div class="cells" id="cells" aria-hidden="true"></div>
+
+      <div class="btns">
+        <button class="btn ghost" id="copyBtn">⧉ Copy Braille</button>
+        <button class="btn ghost" id="downloadBtn">⬇ Download .brf</button>
+      </div>
+
+      <!-- Reference -->
+      <details class="ref">
+        <summary>Braille alphabet — tap a key to insert</summary>
+        <div class="ref-grid" id="refGrid"></div>
+      </details>
+    </section>
+
+    <!-- RIGHT: History -->
+    <aside class="card" aria-labelledby="histTitle">
+      <div class="hist-head">
+        <h2 id="histTitle">Saved</h2>
+        <button class="mini danger" id="clearHist">Clear all</button>
+      </div>
+      <p class="hint">Stored locally in your browser — nothing leaves this device.</p>
+      <ul class="hist-list" id="histList"></ul>
+      <p class="empty" id="histEmpty">No saved conversions yet.</p>
+    </aside>
+  </div>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <b>BrailleBridge</b> — a learning &amp; accessibility demo. Output follows
+    <b>uncontracted (Grade&nbsp;1) English Braille</b>; contractions (Grade&nbsp;2) and
+    some directional punctuation are simplified. Built with vanilla HTML, CSS &amp; JavaScript.
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ============================================================
+   BrailleBridge logic
+   Sections: A) Braille data  B) Engine  C) Render  D) State
+             E) Validation    F) History  G) Speech/Copy/Download
+             H) Events        I) Init
+   ============================================================ */
+
+/* ---------- A. Braille data (dot patterns) ---------- *
+ * Each character maps to the dots it raises (1..6).
+ * The Unicode Braille char is derived from those dots:
+ *   U+2800 + bit(dot-1).  dot1=bit0 … dot6=bit5.
+ */
+const LETTERS = {
+  a:[1], b:[1,2], c:[1,4], d:[1,4,5], e:[1,5], f:[1,2,4], g:[1,2,4,5],
+  h:[1,2,5], i:[2,4], j:[2,4,5], k:[1,3], l:[1,2,3], m:[1,3,4], n:[1,3,4,5],
+  o:[1,3,5], p:[1,2,3,4], q:[1,2,3,4,5], r:[1,2,3,5], s:[2,3,4], t:[2,3,4,5],
+  u:[1,3,6], v:[1,2,3,6], w:[2,4,5,6], x:[1,3,4,6], y:[1,3,4,5,6], z:[1,3,5,6]
+};
+// Digits reuse a–j after a number sign.
+const DIGIT_LETTER = { '1':'a','2':'b','3':'c','4':'d','5':'e','6':'f','7':'g','8':'h','9':'i','0':'j' };
+const PUNCT = {
+  ',':[2], ';':[2,3], ':':[2,5], '.':[2,5,6], '?':[2,3,6], '!':[2,3,5],
+  "'":[3], '-':[3,6], '(':[2,3,5,6], ')':[2,3,5,6], '/':[3,4], '"':[2,3,6], '*':[3,5]
+};
+const NUMBER_SIGN  = [3,4,5,6];   // ⠼
+const CAPITAL_SIGN = [6];         // ⠠
+
+/* ---------- B. Engine ---------- */
+const dotsToChar = dots => String.fromCharCode(0x2800 + dots.reduce((m,d)=>m|(1<<(d-1)),0));
+const charToDots = ch => { const b=ch.charCodeAt(0)-0x2800; const out=[];
+  for(let i=0;i<6;i++) if(b&(1<<i)) out.push(i+1); return out; };
+
+/**
+ * Convert a string into an array of Braille "cells".
+ * Each cell = { dots:[...], char:"⠿", from:"a", kind:"letter|number|caps|punct|space|raw" }
+ */
+function toBrailleCells(text, opts){
+  const cells=[]; let numberMode=false;
+  for(const raw of [...text]){
+    const ch = raw;
+    const lower = ch.toLowerCase();
+    if(ch===' '){ cells.push({dots:[],char:' ',from:' ',kind:'space'}); numberMode=false; continue; }
+    if(ch==='\n'){ cells.push({dots:[],char:'\n',from:'\n',kind:'space'}); numberMode=false; continue; }
+
+    if(DIGIT_LETTER[ch]){                       // a digit
+      if(!numberMode){ cells.push({dots:NUMBER_SIGN,char:dotsToChar(NUMBER_SIGN),from:'#',kind:'number'}); numberMode=true; }
+      const d=LETTERS[DIGIT_LETTER[ch]];
+      cells.push({dots:d,char:dotsToChar(d),from:ch,kind:'number'});
+      continue;
+    }
+    numberMode=false;
+
+    if(LETTERS[lower]){                          // a letter
+      if(opts.caps && ch!==lower){               // capital → prefix capital sign
+        cells.push({dots:CAPITAL_SIGN,char:dotsToChar(CAPITAL_SIGN),from:'⇧',kind:'caps'});
+      }
+      const d=LETTERS[lower];
+      cells.push({dots:d,char:dotsToChar(d),from:ch,kind:'letter'});
+      continue;
+    }
+    if(PUNCT[ch]){                               // punctuation
+      const d=PUNCT[ch];
+      cells.push({dots:d,char:dotsToChar(d),from:ch,kind:'punct'});
+      continue;
+    }
+    // Unsupported → keep the original glyph so nothing silently vanishes
+    cells.push({dots:[],char:ch,from:ch,kind:'raw'});
+  }
+  return cells;
+}
+const cellsToString = cells => cells.map(c=>c.char).join('');
+
+/* ---------- C. Rendering ---------- */
+const $ = id => document.getElementById(id);
+
+function render(){
+  const text = $('input').value;
+  const opts = { caps: $('optCaps').checked };
+  const cells = toBrailleCells(text, opts);
+
+  // 1) Unicode string output
+  $('output').textContent = cellsToString(cells);
+
+  // 2) Dot-number breakdown (optional)
+  if($('optNums').checked && text.trim()){
+    $('dotNums').textContent = cells
+      .filter(c=>c.kind!=='space')
+      .map(c=> c.dots.length ? `${c.from}: ${c.dots.join('-')}` : `${c.from}`)
+      .join('   •   ');
+  } else { $('dotNums').textContent=''; }
+
+  // 3) Visual tactile cells (optional)
+  const box = $('cells'); box.innerHTML='';
+  if($('optCells').checked){
+    const size = $('optSize').value + 'px';
+    cells.forEach(c=>{
+      if(c.kind==='space'){
+        const s=document.createElement('div'); s.className='cell space'; s.textContent='␣'; box.appendChild(s); return;
+      }
+      const cell=document.createElement('div'); cell.className='cell'; cell.style.setProperty('--s',size);
+      cell.title = `${c.from}  (dots ${c.dots.join('-')||'—'})`;
+      // Braille grid order: 1 4 / 2 5 / 3 6
+      [1,4,2,5,3,6].forEach(n=>{
+        const dot=document.createElement('div');
+        dot.className='dot '+(c.dots.includes(n)?'on':'off');
+        cell.appendChild(dot);
+      });
+      box.appendChild(cell);
+    });
+  }
+  validate(text);
+  return cells;
+}
+
+/* ---------- D. State persistence (settings) ---------- */
+const SETTINGS_KEY='bb.settings';
+function saveSettings(){
+  const s={
+    theme: document.documentElement.dataset.theme,
+    auto:$('optAuto').checked, cells:$('optCells').checked, nums:$('optNums').checked,
+    caps:$('optCaps').checked, size:$('optSize').value
+  };
+  try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }catch(e){/* storage blocked */}
+}
+function loadSettings(){
+  let s={}; try{ s=JSON.parse(localStorage.getItem(SETTINGS_KEY))||{}; }catch(e){}
+  if(s.theme) setTheme(s.theme);
+  if('auto'  in s)$('optAuto').checked=s.auto;
+  if('cells' in s)$('optCells').checked=s.cells;
+  if('nums'  in s)$('optNums').checked=s.nums;
+  if('caps'  in s)$('optCaps').checked=s.caps;
+  if(s.size){ $('optSize').value=s.size; $('sizeVal').textContent=s.size; }
+}
+
+/* ---------- E. Form validation ---------- */
+function validate(text){
+  const counter=$('counter'), msg=$('msg'), ta=$('input');
+  const len=text.length;
+  counter.textContent=`${len} / 5000`;
+  counter.classList.toggle('warn', len>4500);
+
+  ta.classList.remove('invalid'); msg.className='msg'; msg.textContent='';
+  if(len===0) return true;
+
+  // Inform (not block) about characters we can't represent in Braille.
+  const unsupported=[...new Set([...text].filter(ch=>{
+    const l=ch.toLowerCase();
+    return ch!==' '&&ch!=='\n'&&!LETTERS[l]&&!DIGIT_LETTER[ch]&&!PUNCT[ch];
+  }))];
+  if(unsupported.length){
+    msg.className='msg error';
+    msg.textContent=`Not in this Braille set: ${unsupported.slice(0,8).join(' ')}${unsupported.length>8?'…':''}`;
+    ta.classList.add('invalid');
+    return false;
+  }
+  msg.className='msg ok'; msg.textContent='Looks good ✓';
+  return true;
+}
+/* Validation used by actions that must have valid, non-empty input. */
+function requireValid(){
+  const text=$('input').value;
+  if(!text.trim()){
+    $('input').classList.add('invalid');
+    $('msg').className='msg error'; $('msg').textContent='Please enter some text first.';
+    $('input').focus();
+    return null;
+  }
+  return text;
+}
+
+/* ---------- F. History (localStorage) ---------- */
+const HIST_KEY='bb.history';
+const getHistory = () => { try{ return JSON.parse(localStorage.getItem(HIST_KEY))||[]; }catch(e){ return []; } };
+const setHistory = h => { try{ localStorage.setItem(HIST_KEY, JSON.stringify(h)); }catch(e){} };
+
+function addHistory(){
+  const text=requireValid(); if(!text) return;
+  const braille=cellsToString(toBrailleCells(text,{caps:$('optCaps').checked}));
+  const h=getHistory();
+  h.unshift({ id:Date.now(), text, braille, at:new Date().toISOString() });
+  setHistory(h.slice(0,40));               // cap at 40 entries
+  renderHistory();
+  toast('Saved to history');
+}
+function renderHistory(){
+  const list=$('histList'), empty=$('histEmpty'), h=getHistory();
+  list.innerHTML='';
+  empty.style.display = h.length ? 'none':'block';
+  h.forEach(item=>{
+    const li=document.createElement('li'); li.className='hist-item';
+    const when=new Date(item.at).toLocaleString();
+    li.innerHTML=`
+      <div class="src">${escapeHtml(item.text.slice(0,80))}${item.text.length>80?'…':''}</div>
+      <div class="br">${escapeHtml(item.braille.slice(0,40))}</div>
+      <div class="row">
+        <time>${when}</time>
+        <span>
+          <button class="mini" data-act="restore" data-id="${item.id}">Restore</button>
+          <button class="mini danger" data-act="del" data-id="${item.id}">Delete</button>
+        </span>
+      </div>`;
+    list.appendChild(li);
+  });
+}
+const escapeHtml = s => s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- G. Speech / Copy / Download ---------- */
+function speak(){
+  const text=requireValid(); if(!text) return;
+  if(!('speechSynthesis' in window)){ toast('Speech not supported here'); return; }
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text); u.rate=.95;
+  speechSynthesis.speak(u); toast('Reading aloud…');
+}
+async function copyBraille(){
+  const out=$('output').textContent;
+  if(!out.trim()){ toast('Nothing to copy'); return; }
+  try{ await navigator.clipboard.writeText(out); toast('Braille copied'); }
+  catch(e){ toast('Copy failed — select manually'); }
+}
+function download(){
+  const out=$('output').textContent;
+  if(!out.trim()){ requireValid(); return; }
+  const blob=new Blob([out],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='braille-'+Date.now()+'.brf';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('Downloaded .brf');
+}
+
+/* ---------- Theme + toast ---------- */
+function setTheme(t){
+  document.documentElement.dataset.theme=t;
+  const dark=t==='dark';
+  $('themeIcon').textContent=dark?'☀️':'🌙';
+  $('themeText').textContent=dark?'Light':'Dark';
+  $('themeBtn').setAttribute('aria-pressed', dark);
+}
+let toastTimer;
+function toast(text){
+  const t=$('toast'); t.textContent=text; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),1900);
+}
+
+/* ---------- Reference grid ---------- */
+function buildReference(){
+  const grid=$('refGrid');
+  Object.entries(LETTERS).forEach(([letter,dots])=>{
+    const b=document.createElement('button');
+    b.className='ref-key'; b.type='button';
+    b.innerHTML=`<span class="braille">${dotsToChar(dots)}</span><span class="latin">${letter.toUpperCase()}</span>`;
+    b.title=`${letter} — dots ${dots.join('-')}`;
+    b.addEventListener('click',()=>{
+      const ta=$('input'); const s=ta.selectionStart??ta.value.length;
+      ta.value=ta.value.slice(0,s)+letter+ta.value.slice(ta.selectionEnd??s);
+      ta.focus(); ta.selectionStart=ta.selectionEnd=s+1;
+      render();
+    });
+    grid.appendChild(b);
+  });
+}
+
+/* ---------- H. Events ---------- */
+function debounce(fn,ms){ let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a),ms); }; }
+
+function bind(){
+  const liveRender=debounce(()=>{ if($('optAuto').checked) render(); else validate($('input').value); },180);
+  $('input').addEventListener('input', liveRender);
+
+  $('convertBtn').addEventListener('click', render);
+  $('speakBtn').addEventListener('click', speak);
+  $('saveBtn').addEventListener('click', addHistory);
+  $('clearBtn').addEventListener('click',()=>{ $('input').value=''; render(); $('input').focus(); });
+  $('copyBtn').addEventListener('click', copyBraille);
+  $('downloadBtn').addEventListener('click', download);
+
+  ['optAuto','optCells','optNums','optCaps'].forEach(id=>
+    $(id).addEventListener('change',()=>{ render(); saveSettings(); }));
+  $('optSize').addEventListener('input',()=>{ $('sizeVal').textContent=$('optSize').value; render(); });
+  $('optSize').addEventListener('change', saveSettings);
+
+  $('themeBtn').addEventListener('click',()=>{
+    setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'); saveSettings();
+  });
+
+  // History list (event delegation)
+  $('histList').addEventListener('click',e=>{
+    const btn=e.target.closest('button[data-act]'); if(!btn) return;
+    const id=Number(btn.dataset.id);
+    if(btn.dataset.act==='del'){ setHistory(getHistory().filter(x=>x.id!==id)); renderHistory(); toast('Deleted'); }
+    if(btn.dataset.act==='restore'){
+      const item=getHistory().find(x=>x.id===id);
+      if(item){ $('input').value=item.text; render(); window.scrollTo({top:0,behavior:'smooth'}); toast('Restored'); }
+    }
+  });
+  $('clearHist').addEventListener('click',()=>{
+    if(getHistory().length && confirm('Clear all saved conversions?')){ setHistory([]); renderHistory(); toast('History cleared'); }
+  });
+
+  // Keyboard shortcut: Ctrl/Cmd+Enter = save
+  $('input').addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); addHistory(); }
+  });
+}
+
+/* ---------- I. Init ---------- */
+function init(){
+  buildReference();
+  loadSettings();
+  bind();
+  renderHistory();
+  $('input').value='Hello World 2026!';   // friendly first impression
+  render();
+}
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
